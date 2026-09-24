@@ -1,11 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { ArrowRight, Boxes, Check, ShieldCheck, Sparkles } from 'lucide-react'
 
 export default function AuthPage() {
-  const router = useRouter()
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [name, setName] = useState(''); const [message, setMessage] = useState(''); const [loading, setLoading] = useState(false)
   async function submit(e: React.FormEvent) {
@@ -49,8 +47,10 @@ export default function AuthPage() {
       setMessage('Login berhasil, tetapi sesi belum tersedia. Silakan coba lagi.')
       return
     }
-    router.replace('/')
-    router.refresh()
+
+    // A full navigation lets Supabase persist the session cookies before the
+    // protected page and middleware evaluate the authenticated state.
+    window.location.assign('/')
   }
   return <main className="auth-page"><section className="auth-brand"><div className="logo"><div className="brand-mark"><Boxes size={22} /></div><span>Aster<span>Stockly</span></span></div><p className="eyebrow"><Sparkles size={13} /> INVENTORY, IN ORBIT</p><h1>Stok terkendali.<br /><em>Bisnis melaju.</em></h1><p className="auth-copy">Ruang kerja inventaris yang tenang, tajam, dan selalu siap memberi sinyal sebelum masalah datang.</p><div className="trust"><ShieldCheck size={18} /> Data tiap akun terisolasi dan terlindungi</div><div className="auth-perks"><span><Check size={15} /> Pantau stok minimum</span><span><Check size={15} /> Deteksi expiry</span><span><Check size={15} /> Notifikasi browser real-time</span></div></section><section className="auth-card"><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Masuk</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => setMode('signup')}>Registrasi</button></div><h2>{mode === 'login' ? 'Selamat datang kembali' : 'Mulai workspace Anda'}</h2><p className="muted">{mode === 'login' ? 'Masuk untuk melihat inventaris AsterStockly.' : 'Buat akun dan rapikan operasional hari ini.'}</p><form onSubmit={submit}>{mode === 'signup' && <label>Nama lengkap<input required value={name} onChange={e => setName(e.target.value)} placeholder="Nama Anda" /></label>}<label>Email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@bisnis.com" /></label><label>Password<input required minLength={6} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Minimal 6 karakter" /></label>{message && <p className="form-message">{message}</p>}<button className="primary full" disabled={loading}>{loading ? 'Memproses...' : mode === 'login' ? 'Masuk ke workspace' : 'Buat akun'} <ArrowRight size={17} /></button></form><p className="legal">Dengan melanjutkan, Anda menyetujui penggunaan AsterStockly untuk kebutuhan operasional bisnis Anda.</p></section></main>
 }
