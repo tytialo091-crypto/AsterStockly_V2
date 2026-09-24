@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, LogOut, Menu, MessageCircle, PackagePlus,
-  Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
+  Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
 } from 'lucide-react'
 
 type View = 'ringkasan' | 'produk' | 'expiry' | 'notifikasi' | 'pengaturan'
@@ -34,6 +34,7 @@ export default function Page() {
   const [isDemo, setIsDemo] = useState(false)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showNotif, setShowNotif] = useState(false)
   const [view, setView] = useState<View>('ringkasan')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -130,23 +131,33 @@ export default function Page() {
     if (result === 'granted') notifyBrowser()
   }
 
+  function openCreate() {
+    setEditingId(null)
+    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    setShowAdd(true)
+  }
+
+  function openEdit(item: Item) {
+    setEditingId(item.id)
+    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
+    setShowAdd(true)
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
     const client = supabase()
     if (!client) return
-    const { data } = await client.from('inventory_items').insert({
-      ...form,
-      user_id: user.id,
-      stock: Number(form.stock),
-      min_stock: Number(form.min_stock),
-      expiry_date: form.expiry_date || null,
-    }).select().single()
+    const payload = { ...form, user_id: user.id, stock: Number(form.stock), min_stock: Number(form.min_stock), expiry_date: form.expiry_date || null }
+    const { data } = editingId
+      ? await client.from('inventory_items').update(payload).eq('id', editingId).eq('user_id', user.id).select().single()
+      : await client.from('inventory_items').insert(payload).select().single()
     if (data) {
-      setItems(x => [data, ...(isDemo ? [] : x)])
+      setItems(x => editingId ? x.map(item => item.id === editingId ? data as Item : item) : [data as Item, ...(isDemo ? [] : x)])
       setIsDemo(false)
     }
     setShowAdd(false)
+    setEditingId(null)
     setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
   }
 
@@ -157,7 +168,7 @@ export default function Page() {
     }
     const client = supabase()
     if (!client) return
-    await client.from('inventory_items').delete().eq('id', id)
+    await client.from('inventory_items').delete().eq('id', id).eq('user_id', user?.id)
     setItems(x => x.filter(i => i.id !== id))
   }
 
@@ -181,7 +192,7 @@ export default function Page() {
               <td><span className={i.stock <= i.min_stock ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
               <td>{i.expiry_date ? new Date(i.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
               <td>{i.location}</td>
-              <td><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
+              <td className="row-actions"><button className="delete" onClick={() => openEdit(i)} aria-label={`Edit ${i.name}`}><Pencil size={16} /></button><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
             </tr>
           ))}
           {filtered.length === 0 && (
@@ -282,7 +293,7 @@ export default function Page() {
                   <h2>Inventaris produk</h2>
                   <p className="muted">Pantau stok dan kondisi barang Anda.</p>
                 </div>
-                <button className="primary" onClick={() => setShowAdd(true)}><PackagePlus size={17} /> Tambah produk</button>
+                <button className="primary" onClick={openCreate}><PackagePlus size={17} /> Tambah produk</button>
               </div>
 
               <div className="toolbar">
@@ -318,7 +329,7 @@ export default function Page() {
                   <h2>Semua produk</h2>
                   <p className="muted">{items.length} produk terdaftar di akun Anda.</p>
                 </div>
-                <button className="primary" onClick={() => setShowAdd(true)}><PackagePlus size={17} /> Tambah produk</button>
+                <button className="primary" onClick={openCreate}><PackagePlus size={17} /> Tambah produk</button>
               </div>
               <div className="toolbar">
                 <div className="search">
@@ -427,8 +438,8 @@ export default function Page() {
         <div className="modal-backdrop" onClick={() => setShowAdd(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setShowAdd(false)}><X size={19} /></button>
-            <h2>Tambah produk</h2>
-            <p className="muted">Simpan item baru ke inventaris akun Anda.</p>
+            <h2>{editingId ? 'Edit produk' : 'Tambah produk'}</h2>
+            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris akun Anda.'}</p>
             <form onSubmit={add}>
               <label>Nama produk<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
               <div className="form-grid">
