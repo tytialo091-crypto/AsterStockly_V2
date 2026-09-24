@@ -24,8 +24,14 @@ export default function ForgotPasswordPage() {
       setLoading(false)
       return
     }
+    const callbackUrl = new URL(
+      process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
+    )
+    callbackUrl.pathname = '/auth/callback'
+    callbackUrl.searchParams.set('next', '/auth/reset-password')
+
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/reset-password`,
+      redirectTo: callbackUrl.toString(),
     })
     setLoading(false)
     setMessage(error ? 'Permintaan belum dapat diproses. Silakan coba lagi.' : 'Jika email terdaftar, tautan reset password akan dikirim ke inbox Anda.')
