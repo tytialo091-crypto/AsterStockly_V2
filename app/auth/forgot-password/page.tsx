@@ -24,10 +24,8 @@ export default function ForgotPasswordPage() {
       setLoading(false)
       return
     }
-    const callbackUrl = new URL(
-      process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
-    )
-    callbackUrl.pathname = '/auth/callback'
+    // Use the current deployed origin so reset links never point to an old v0 preview.
+    const callbackUrl = new URL('/auth/callback', window.location.origin)
     callbackUrl.searchParams.set('next', '/auth/reset-password')
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
