@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, LogOut, Menu, MessageCircle, PackagePlus,
-  Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
+  Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
 } from 'lucide-react'
 
 type View = 'ringkasan' | 'produk' | 'expiry' | 'notifikasi' | 'pengaturan'
@@ -32,8 +32,11 @@ export default function Page() {
   const [user, setUser] = useState<any>(null)
   const [items, setItems] = useState<Item[]>([])
   const [isDemo, setIsDemo] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showNotif, setShowNotif] = useState(false)
   const [view, setView] = useState<View>('ringkasan')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -48,14 +51,34 @@ export default function Page() {
     if (typeof Notification === 'undefined') setNotifPermission('unsupported')
     else setNotifPermission(Notification.permission)
 
+    if (!isSupabaseConfigured()) {
+      setAuthLoading(false)
+      setItems(demo)
+      setIsDemo(true)
+      return
+    }
+
     const client = supabase()
+    if (!client) {
+      setAuthLoading(false)
+      setItems(demo)
+      setIsDemo(true)
+      return
+    }
     client.auth.getUser().then(({ data }) => {
       if (!data.user) {
         window.location.href = '/auth'
         return
       }
       setUser(data.user)
-      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows }) => {
+      setAuthLoading(false)
+      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
+        if (error) {
+          setDatabaseMessage('Data inventaris belum dapat dimuat. Pastikan tabel inventory_items dan policy RLS sudah tersedia.')
+          setItems(demo)
+          setIsDemo(true)
+          return
+        }
         if (rows?.length) {
           setItems(rows as Item[])
           setIsDemo(false)
@@ -119,21 +142,43 @@ export default function Page() {
     if (result === 'granted') notifyBrowser()
   }
 
+  function openCreate() {
+    setEditingId(null)
+    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    setShowAdd(true)
+  }
+
+  function openEdit(item: Item) {
+    setEditingId(item.id)
+    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
+    setShowAdd(true)
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
-    const { data } = await supabase().from('inventory_items').insert({
-      ...form,
-      user_id: user.id,
-      stock: Number(form.stock),
-      min_stock: Number(form.min_stock),
-      expiry_date: form.expiry_date || null,
-    }).select().single()
+    const client = supabase()
+    if (!client) return
+    const name = form.name.trim()
+    const sku = form.sku.trim()
+    const stock = Number(form.stock)
+    const minStock = Number(form.min_stock)
+    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
+    const payload = { ...form, name, sku, user_id: user.id, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
+    const result = editingId
+      ? await client.from('inventory_items').update(payload).eq('id', editingId).eq('user_id', user.id).select().single()
+      : await client.from('inventory_items').insert(payload).select().single()
+    if (result.error) {
+      setDatabaseMessage('Produk belum tersimpan. Periksa struktur tabel dan policy RLS Supabase.')
+      return
+    }
+    const { data } = result
     if (data) {
-      setItems(x => [data, ...(isDemo ? [] : x)])
+      setItems(x => editingId ? x.map(item => item.id === editingId ? data as Item : item) : [data as Item, ...(isDemo ? [] : x)])
       setIsDemo(false)
     }
     setShowAdd(false)
+    setEditingId(null)
     setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
   }
 
@@ -142,13 +187,20 @@ export default function Page() {
       setItems(x => x.filter(i => i.id !== id))
       return
     }
-    await supabase().from('inventory_items').delete().eq('id', id)
+    const client = supabase()
+    if (!client) return
+    await client.from('inventory_items').delete().eq('id', id).eq('user_id', user?.id)
     setItems(x => x.filter(i => i.id !== id))
   }
 
   async function logout() {
-    await supabase().auth.signOut()
-    window.location.href = '/auth'
+    const client = supabase()
+    if (client) await client.auth.signOut()
+    window.location.assign('/auth')
+  }
+
+  if (authLoading) {
+    return <main className="loading-screen" aria-live="polite"><div className="loading-orbit" /><p>Menyiapkan workspace Anda...</p></main>
   }
 
   const productTable = (
@@ -165,7 +217,7 @@ export default function Page() {
               <td><span className={i.stock <= i.min_stock ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
               <td>{i.expiry_date ? new Date(i.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
               <td>{i.location}</td>
-              <td><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
+              <td className="row-actions"><button className="delete" onClick={() => openEdit(i)} aria-label={`Edit ${i.name}`}><Pencil size={16} /></button><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
             </tr>
           ))}
           {filtered.length === 0 && (
@@ -211,7 +263,7 @@ export default function Page() {
           </div>
           <div className="top-actions">
             <div className="notif-wrap">
-              <button className="icon-button" onClick={() => setShowNotif(v => !v)} aria-label="Notifikasi">
+              <button className="icon-button" onClick={() => setShowNotif(v => !v)} aria-label={`Notifikasi${alerts.length ? `, ${alerts.length} peringatan` : ''}`} aria-expanded={showNotif}>
                 <Bell size={19} />
                 {alerts.length > 0 && <i />}
               </button>
@@ -240,9 +292,10 @@ export default function Page() {
         <div className="content">
           {isDemo && (
             <p className="muted demo-note">
-              Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
-            </p>
+          Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
+          </p>
           )}
+          {databaseMessage && <p className="muted demo-note" role="status">{databaseMessage}</p>}
 
           {view === 'ringkasan' && (
             <>
@@ -266,7 +319,7 @@ export default function Page() {
                   <h2>Inventaris produk</h2>
                   <p className="muted">Pantau stok dan kondisi barang Anda.</p>
                 </div>
-                <button className="primary" onClick={() => setShowAdd(true)}><PackagePlus size={17} /> Tambah produk</button>
+                <button className="primary" onClick={openCreate}><PackagePlus size={17} /> Tambah produk</button>
               </div>
 
               <div className="toolbar">
@@ -302,7 +355,7 @@ export default function Page() {
                   <h2>Semua produk</h2>
                   <p className="muted">{items.length} produk terdaftar di akun Anda.</p>
                 </div>
-                <button className="primary" onClick={() => setShowAdd(true)}><PackagePlus size={17} /> Tambah produk</button>
+                <button className="primary" onClick={openCreate}><PackagePlus size={17} /> Tambah produk</button>
               </div>
               <div className="toolbar">
                 <div className="search">
@@ -411,8 +464,8 @@ export default function Page() {
         <div className="modal-backdrop" onClick={() => setShowAdd(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setShowAdd(false)}><X size={19} /></button>
-            <h2>Tambah produk</h2>
-            <p className="muted">Simpan item baru ke inventaris akun Anda.</p>
+            <h2>{editingId ? 'Edit produk' : 'Tambah produk'}</h2>
+            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris akun Anda.'}</p>
             <form onSubmit={add}>
               <label>Nama produk<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
               <div className="form-grid">
