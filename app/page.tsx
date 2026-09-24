@@ -32,6 +32,7 @@ export default function Page() {
   const [user, setUser] = useState<any>(null)
   const [items, setItems] = useState<Item[]>([])
   const [isDemo, setIsDemo] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -51,6 +52,7 @@ export default function Page() {
     else setNotifPermission(Notification.permission)
 
     if (!isSupabaseConfigured()) {
+      setAuthLoading(false)
       setItems(demo)
       setIsDemo(true)
       return
@@ -58,6 +60,7 @@ export default function Page() {
 
     const client = supabase()
     if (!client) {
+      setAuthLoading(false)
       setItems(demo)
       setIsDemo(true)
       return
@@ -68,6 +71,7 @@ export default function Page() {
         return
       }
       setUser(data.user)
+      setAuthLoading(false)
       client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
         if (error) {
           setDatabaseMessage('Data inventaris belum dapat dimuat. Pastikan tabel inventory_items dan policy RLS sudah tersedia.')
@@ -192,7 +196,11 @@ export default function Page() {
   async function logout() {
     const client = supabase()
     if (client) await client.auth.signOut()
-    window.location.href = '/auth'
+    window.location.assign('/auth')
+  }
+
+  if (authLoading) {
+    return <main className="loading-screen" aria-live="polite"><div className="loading-orbit" /><p>Menyiapkan workspace Anda...</p></main>
   }
 
   const productTable = (
@@ -255,7 +263,7 @@ export default function Page() {
           </div>
           <div className="top-actions">
             <div className="notif-wrap">
-              <button className="icon-button" onClick={() => setShowNotif(v => !v)} aria-label="Notifikasi">
+              <button className="icon-button" onClick={() => setShowNotif(v => !v)} aria-label={`Notifikasi${alerts.length ? `, ${alerts.length} peringatan` : ''}`} aria-expanded={showNotif}>
                 <Bell size={19} />
                 {alerts.length > 0 && <i />}
               </button>
