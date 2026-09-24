@@ -153,7 +153,9 @@ export default function Page() {
   }
 
   async function logout() {
-    await supabase().auth.signOut()
+    if (isSupabaseConfigured()) {
+      await supabase().auth.signOut()
+    }
     window.location.href = '/auth'
   }
 
