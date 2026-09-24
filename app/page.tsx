@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, LogOut, Menu, MessageCircle, PackagePlus,
   Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
@@ -47,6 +47,12 @@ export default function Page() {
   useEffect(() => {
     if (typeof Notification === 'undefined') setNotifPermission('unsupported')
     else setNotifPermission(Notification.permission)
+
+    if (!isSupabaseConfigured()) {
+      setItems(demo)
+      setIsDemo(true)
+      return
+    }
 
     const client = supabase()
     client.auth.getUser().then(({ data }) => {
