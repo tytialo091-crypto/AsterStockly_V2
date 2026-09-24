@@ -1,13 +1,23 @@
-import { createBrowserClient } from '@supabase/ssr'
+import { createBrowserClient, type SupabaseClient } from '@supabase/ssr'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+let browserClient: SupabaseClient | undefined
+
+function getConfig() {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    key: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  }
+}
 
 export function isSupabaseConfigured() {
-  return Boolean(supabaseUrl && supabaseKey)
+  const { url, key } = getConfig()
+  return Boolean(url && key)
 }
 
 export function createClient() {
-  if (!supabaseUrl || !supabaseKey) return null
-  return createBrowserClient(supabaseUrl, supabaseKey)
+  if (browserClient) return browserClient
+  const { url, key } = getConfig()
+  if (!url || !key) return null
+  browserClient = createBrowserClient(url, key)
+  return browserClient
 }
