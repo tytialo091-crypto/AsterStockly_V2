@@ -32,6 +32,7 @@ export default function Page() {
   const [user, setUser] = useState<any>(null)
   const [items, setItems] = useState<Item[]>([])
   const [isDemo, setIsDemo] = useState(false)
+  const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -67,7 +68,13 @@ export default function Page() {
         return
       }
       setUser(data.user)
-      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows }) => {
+      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
+        if (error) {
+          setDatabaseMessage('Data inventaris belum dapat dimuat. Pastikan tabel inventory_items dan policy RLS sudah tersedia.')
+          setItems(demo)
+          setIsDemo(true)
+          return
+        }
         if (rows?.length) {
           setItems(rows as Item[])
           setIsDemo(false)
@@ -148,10 +155,20 @@ export default function Page() {
     if (!user) return
     const client = supabase()
     if (!client) return
-    const payload = { ...form, user_id: user.id, stock: Number(form.stock), min_stock: Number(form.min_stock), expiry_date: form.expiry_date || null }
-    const { data } = editingId
+    const name = form.name.trim()
+    const sku = form.sku.trim()
+    const stock = Number(form.stock)
+    const minStock = Number(form.min_stock)
+    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
+    const payload = { ...form, name, sku, user_id: user.id, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
+    const result = editingId
       ? await client.from('inventory_items').update(payload).eq('id', editingId).eq('user_id', user.id).select().single()
       : await client.from('inventory_items').insert(payload).select().single()
+    if (result.error) {
+      setDatabaseMessage('Produk belum tersimpan. Periksa struktur tabel dan policy RLS Supabase.')
+      return
+    }
+    const { data } = result
     if (data) {
       setItems(x => editingId ? x.map(item => item.id === editingId ? data as Item : item) : [data as Item, ...(isDemo ? [] : x)])
       setIsDemo(false)
@@ -267,9 +284,10 @@ export default function Page() {
         <div className="content">
           {isDemo && (
             <p className="muted demo-note">
-              Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
-            </p>
+          Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
+          </p>
           )}
+          {databaseMessage && <p className="muted demo-note" role="status">{databaseMessage}</p>}
 
           {view === 'ringkasan' && (
             <>

@@ -24,8 +24,8 @@ export default function ForgotPasswordPage() {
       setLoading(false)
       return
     }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/reset-password`,
     })
     setLoading(false)
     setMessage(error ? 'Permintaan belum dapat diproses. Silakan coba lagi.' : 'Jika email terdaftar, tautan reset password akan dikirim ke inbox Anda.')
