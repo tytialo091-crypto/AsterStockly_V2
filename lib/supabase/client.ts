@@ -8,9 +8,6 @@ export function isSupabaseConfigured() {
 }
 
 export function createClient() {
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase is not configured for this environment.')
-  }
-
+  if (!supabaseUrl || !supabaseKey) return null
   return createBrowserClient(supabaseUrl, supabaseKey)
 }

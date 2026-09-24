@@ -55,6 +55,11 @@ export default function Page() {
     }
 
     const client = supabase()
+    if (!client) {
+      setItems(demo)
+      setIsDemo(true)
+      return
+    }
     client.auth.getUser().then(({ data }) => {
       if (!data.user) {
         window.location.href = '/auth'
@@ -128,7 +133,9 @@ export default function Page() {
   async function add(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
-    const { data } = await supabase().from('inventory_items').insert({
+    const client = supabase()
+    if (!client) return
+    const { data } = await client.from('inventory_items').insert({
       ...form,
       user_id: user.id,
       stock: Number(form.stock),
@@ -148,14 +155,15 @@ export default function Page() {
       setItems(x => x.filter(i => i.id !== id))
       return
     }
-    await supabase().from('inventory_items').delete().eq('id', id)
+    const client = supabase()
+    if (!client) return
+    await client.from('inventory_items').delete().eq('id', id)
     setItems(x => x.filter(i => i.id !== id))
   }
 
   async function logout() {
-    if (isSupabaseConfigured()) {
-      await supabase().auth.signOut()
-    }
+    const client = supabase()
+    if (client) await client.auth.signOut()
     window.location.href = '/auth'
   }
 
