@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, Boxes, Check, ShieldCheck, Sparkles } from 'lucide-react'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 
@@ -15,6 +15,13 @@ export default function AuthPage() {
   const [step, setStep] = useState<'email' | 'otp'>('email')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = window.setInterval(() => setCooldown(value => Math.max(0, value - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [cooldown])
 
   async function requestOtp(event: React.FormEvent) {
     event.preventDefault()
@@ -41,6 +48,7 @@ export default function AuthPage() {
       return
     }
     setStep('otp')
+    setCooldown(30)
     setMessage(`Kode OTP sudah dikirim ke ${email.trim()}.`)
   }
 
@@ -104,7 +112,7 @@ export default function AuthPage() {
           <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}><span className="google-mark">G</span> Lanjutkan dengan Google</button>
           <div className="auth-divider"><span>atau gunakan OTP email</span></div>
           <form onSubmit={requestOtp}>{mode === 'signup' && <label>Nama lengkap<input required autoComplete="name" value={name} onChange={e => setName(e.target.value)} placeholder="Nama Anda" /></label>}<label>Email<input required autoComplete="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@bisnis.com" /></label><button className="submit-button" disabled={loading}>{loading ? 'Mengirim kode...' : 'Kirim kode OTP'} <ArrowRight size={17} /></button></form>
-        </> : <form onSubmit={verifyOtp}><label>Kode OTP<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" /></label><button className="submit-button" disabled={loading}>{loading ? 'Memverifikasi...' : 'Verifikasi dan masuk'} <ArrowRight size={17} /></button><button type="button" className="text-button" onClick={() => { setStep('email'); setOtp(''); setMessage('') }}>Kirim ulang kode</button></form>}
+        </> : <form onSubmit={verifyOtp}><label>Kode OTP<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" /></label><button className="submit-button" disabled={loading}>{loading ? 'Memverifikasi...' : 'Verifikasi dan masuk'} <ArrowRight size={17} /></button><button type="button" className="text-button" disabled={cooldown > 0 || loading} onClick={() => { setStep('email'); setOtp(''); setMessage('') }}>{cooldown > 0 ? `Kirim ulang dalam ${cooldown} detik` : 'Kirim ulang kode'}</button></form>}
         {message && <p className="auth-message" role="status">{message}</p>}
         <p className="auth-legal">Dengan melanjutkan, Anda menyetujui kebijakan privasi AsterStockly.</p>
       </section>
