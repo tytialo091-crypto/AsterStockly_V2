@@ -65,9 +65,9 @@ export default function Page() {
       setIsDemo(true)
       return
     }
-    client.auth.getUser().then(({ data }) => {
-      if (!data.user) {
-        window.location.href = '/auth'
+    client.auth.getUser().then(({ data, error: authError }) => {
+      if (authError || !data.user) {
+        window.location.assign('/auth')
         return
       }
       setUser(data.user)
@@ -87,6 +87,10 @@ export default function Page() {
           setIsDemo(true)
         }
       })
+    }).catch(() => {
+      setAuthLoading(false)
+      setDatabaseMessage('Sesi tidak dapat diverifikasi. Silakan masuk kembali.')
+      window.location.assign('/auth')
     })
   }, [])
 
@@ -102,7 +106,7 @@ export default function Page() {
   const low = items.filter(i => i.stock <= i.min_stock)
   const exp = items.filter(i => i.expiry_date && new Date(i.expiry_date).getTime() - Date.now() < EXPIRY_WINDOW_MS)
   const expSorted = useMemo(
-    () => items
+    () => [...items]
       .filter(i => i.expiry_date)
       .sort((a, b) => new Date(a.expiry_date as string).getTime() - new Date(b.expiry_date as string).getTime()),
     [items],
