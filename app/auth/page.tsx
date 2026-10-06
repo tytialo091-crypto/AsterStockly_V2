@@ -1,11 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, Boxes, Check, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 
-const redirectUrl = () =>
-  process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`
+const redirectUrl = () => `${window.location.origin}/auth/callback`
 
 export default function AuthPage() {
   const [email, setEmail] = useState('')
@@ -15,6 +14,11 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get('error')
+    if (error) setMessage(error === 'callback_failed' ? 'Sesi autentikasi tidak dapat diselesaikan. Coba lagi.' : `Autentikasi gagal: ${error.replaceAll('_', ' ')}`)
+  }, [])
 
   function changeMode(nextMode: 'login' | 'signup') {
     setMode(nextMode)

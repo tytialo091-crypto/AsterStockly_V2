@@ -18,10 +18,24 @@ export default function ResetPasswordPage() {
     }
     const supabase = createClient()
     if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => {
-      setReady(Boolean(data.session))
-      if (!data.session) setMessage('Tautan reset tidak valid atau sudah kedaluwarsa.')
+
+    let settled = false
+    const resolveSession = (session: { user?: unknown } | null) => {
+      if (settled) return
+      settled = true
+      setReady(Boolean(session))
+      if (!session) setMessage('Tautan reset tidak valid atau sudah kedaluwarsa. Minta link reset baru.')
+    }
+
+    supabase.auth.getSession().then(({ data }) => resolveSession(data.session))
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || session) resolveSession(session)
     })
+    const timeout = window.setTimeout(() => resolveSession(null), 2500)
+    return () => {
+      window.clearTimeout(timeout)
+      listener.subscription.unsubscribe()
+    }
   }, [])
 
   async function submit(event: FormEvent) {

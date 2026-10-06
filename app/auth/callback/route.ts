@@ -8,9 +8,9 @@ export async function GET(request: Request) {
   const next = url.searchParams.get('next') === '/auth/reset-password' ? '/auth/reset-password' : '/'
 
   if (error) {
-    return NextResponse.redirect(new URL(`/auth?error=${encodeURIComponent(error)}`, request.url))
+    return NextResponse.redirect(new URL(`${next}?error=${encodeURIComponent(error)}`, request.url))
   }
-  if (!code) return NextResponse.redirect(new URL('/auth?error=missing_code', request.url))
+  if (!code) return NextResponse.redirect(new URL(`${next}?error=missing_code`, request.url))
 
   const supabase = await createClient()
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
