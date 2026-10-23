@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import {
-  Bell, Boxes, CalendarClock, LayoutGrid, LogOut, Menu, MessageCircle, PackagePlus,
+  Bell, Boxes, CalendarClock, LayoutGrid, Menu, MessageCircle, PackagePlus,
   Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
 } from 'lucide-react'
 
@@ -29,10 +29,8 @@ const demo: Item[] = [
 const EXPIRY_WINDOW_MS = 14 * 86400000
 
 export default function Page() {
-  const [user, setUser] = useState<any>(null)
   const [items, setItems] = useState<Item[]>([])
   const [isDemo, setIsDemo] = useState(false)
-  const [authLoading, setAuthLoading] = useState(true)
   const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -52,7 +50,6 @@ export default function Page() {
     else setNotifPermission(Notification.permission)
 
     if (!isSupabaseConfigured()) {
-      setAuthLoading(false)
       setItems(demo)
       setIsDemo(true)
       return
@@ -60,37 +57,24 @@ export default function Page() {
 
     const client = supabase()
     if (!client) {
-      setAuthLoading(false)
       setItems(demo)
       setIsDemo(true)
       return
     }
-    client.auth.getUser().then(({ data, error: authError }) => {
-      if (authError || !data.user) {
-        window.location.assign('/auth')
+    client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
+      if (error) {
+        setDatabaseMessage('Data publik belum dapat dimuat. Menampilkan data demo sementara.')
+        setItems(demo)
+        setIsDemo(true)
         return
       }
-      setUser(data.user)
-      setAuthLoading(false)
-      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
-        if (error) {
-          setDatabaseMessage('Data inventaris belum dapat dimuat. Pastikan tabel inventory_items dan policy RLS sudah tersedia.')
-          setItems(demo)
-          setIsDemo(true)
-          return
-        }
-        if (rows?.length) {
-          setItems(rows as Item[])
-          setIsDemo(false)
-        } else {
-          setItems(demo)
-          setIsDemo(true)
-        }
-      })
-    }).catch(() => {
-      setAuthLoading(false)
-      setDatabaseMessage('Sesi tidak dapat diverifikasi. Silakan masuk kembali.')
-      window.location.assign('/auth')
+      if (rows?.length) {
+        setItems(rows as Item[])
+        setIsDemo(false)
+      } else {
+        setItems(demo)
+        setIsDemo(true)
+      }
     })
   }, [])
 
@@ -160,7 +144,6 @@ export default function Page() {
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
-    if (!user) return
     const client = supabase()
     if (!client) return
     const name = form.name.trim()
@@ -168,9 +151,9 @@ export default function Page() {
     const stock = Number(form.stock)
     const minStock = Number(form.min_stock)
     if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
-    const payload = { ...form, name, sku, user_id: user.id, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
+    const payload = { ...form, name, sku, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
     const result = editingId
-      ? await client.from('inventory_items').update(payload).eq('id', editingId).eq('user_id', user.id).select().single()
+      ? await client.from('inventory_items').update(payload).eq('id', editingId).select().single()
       : await client.from('inventory_items').insert(payload).select().single()
     if (result.error) {
       setDatabaseMessage('Produk belum tersimpan. Periksa struktur tabel dan policy RLS Supabase.')
@@ -193,18 +176,8 @@ export default function Page() {
     }
     const client = supabase()
     if (!client) return
-    await client.from('inventory_items').delete().eq('id', id).eq('user_id', user?.id)
+    await client.from('inventory_items').delete().eq('id', id)
     setItems(x => x.filter(i => i.id !== id))
-  }
-
-  async function logout() {
-    const client = supabase()
-    if (client) await client.auth.signOut()
-    window.location.assign('/auth')
-  }
-
-  if (authLoading) {
-    return <main className="loading-screen" aria-live="polite"><div className="loading-orbit" /><p>Menyiapkan workspace Anda...</p></main>
   }
 
   const productTable = (
@@ -252,7 +225,7 @@ export default function Page() {
         </nav>
         <div className="sidebar-bottom">
           <a className={view === 'pengaturan' ? 'nav-active' : ''} onClick={() => goTo('pengaturan')}><Settings size={18} /> Pengaturan</a>
-          <button onClick={logout}><LogOut size={18} /> Keluar</button>
+          <button onClick={openCreate}><PackagePlus size={18} /> Tambah data</button>
         </div>
       </aside>
 
@@ -262,7 +235,7 @@ export default function Page() {
             <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Buka menu"><Menu size={20} /></button>
             <div>
               <p className="eyebrow">{pageMeta[view].eyebrow}</p>
-              <h1>{pageMeta[view].title}{view === 'ringkasan' && user?.user_metadata?.name ? `, ${user.user_metadata.name.split(' ')[0]}` : ''}{view === 'ringkasan' ? '.' : ''}</h1>
+              <h1>{pageMeta[view].title}{view === 'ringkasan' ? ', tim AsterStockly' : ''}{view === 'ringkasan' ? '.' : ''}</h1>
             </div>
           </div>
           <div className="top-actions">
@@ -444,7 +417,7 @@ export default function Page() {
               <div className="panel settings-panel">
                 <div className="settings-row">
                   <div className="settings-icon"><UserRound size={18} /></div>
-                  <div><b>Email</b><p className="muted">{user?.email ?? '—'}</p></div>
+                  <div><b>Mode akses</b><p className="muted">Data publik untuk seluruh tim</p></div>
                 </div>
                 <div className="settings-row">
                   <div className="settings-icon"><ShieldCheck size={18} /></div>
@@ -455,8 +428,8 @@ export default function Page() {
                 </div>
                 <div className="settings-row">
                   <div className="settings-icon"><LogOut size={18} /></div>
-                  <div><b>Keluar dari akun</b><p className="muted">Akhiri sesi Anda di perangkat ini.</p></div>
-                  <button className="ghost" onClick={logout}>Keluar</button>
+<div><b>Bagikan workspace</b><p className="muted">Semua anggota tim dapat melihat dan mengelola data publik.</p></div>
+              <button className="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)}>Salin link</button>
                 </div>
               </div>
             </>
