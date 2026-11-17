@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
+import { deleteInventoryItem, listInventoryItems, saveInventoryItem } from '@/app/actions/inventory'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, Menu, MessageCircle, PackagePlus,
   Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
@@ -43,38 +43,23 @@ export default function Page() {
     name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama',
   })
 
-  const supabase = () => createClient()
-
   useEffect(() => {
     if (typeof Notification === 'undefined') setNotifPermission('unsupported')
     else setNotifPermission(Notification.permission)
 
-    if (!isSupabaseConfigured()) {
+    listInventoryItems().then(rows => {
+      setItems(rows.map(row => ({
+        ...row,
+        min_stock: row.minStock,
+        expiry_date: row.expiryDate,
+        created_at: row.createdAt.toISOString(),
+      })) as Item[])
+      setIsDemo(false)
+      setDatabaseMessage('')
+    }).catch(() => {
+      setDatabaseMessage('Neon belum dapat dijangkau. Data demo ditampilkan sementara.')
       setItems(demo)
       setIsDemo(true)
-      return
-    }
-
-    const client = supabase()
-    if (!client) {
-      setItems(demo)
-      setIsDemo(true)
-      return
-    }
-    client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
-      if (error) {
-        setDatabaseMessage('Data publik belum dapat dimuat. Menampilkan data demo sementara.')
-        setItems(demo)
-        setIsDemo(true)
-        return
-      }
-      if (rows?.length) {
-        setItems(rows as Item[])
-        setIsDemo(false)
-      } else {
-        setItems(demo)
-        setIsDemo(true)
-      }
     })
   }, [])
 
@@ -144,29 +129,24 @@ export default function Page() {
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
-    const client = supabase()
-    if (!client) return
     const name = form.name.trim()
     const sku = form.sku.trim()
     const stock = Number(form.stock)
     const minStock = Number(form.min_stock)
     if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
     const payload = { ...form, name, sku, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
-    const result = editingId
-      ? await client.from('inventory_items').update(payload).eq('id', editingId).select().single()
-      : await client.from('inventory_items').insert(payload).select().single()
-    if (result.error) {
-      setDatabaseMessage('Produk belum tersimpan. Periksa struktur tabel dan policy RLS Supabase.')
-      return
-    }
-    const { data } = result
-    if (data) {
-      setItems(x => editingId ? x.map(item => item.id === editingId ? data as Item : item) : [data as Item, ...(isDemo ? [] : x)])
+    try {
+      const saved = await saveInventoryItem(payload, editingId ?? undefined)
+      const item = saved as Item
+      setItems(current => editingId ? current.map(existing => existing.id === editingId ? item : existing) : [item, ...current])
       setIsDemo(false)
+      setDatabaseMessage('')
+      setShowAdd(false)
+      setEditingId(null)
+      setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    } catch {
+      setDatabaseMessage('Produk belum tersimpan. Pastikan Neon terhubung dan SKU belum digunakan.')
     }
-    setShowAdd(false)
-    setEditingId(null)
-    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
   }
 
   async function remove(id: string) {
@@ -174,10 +154,13 @@ export default function Page() {
       setItems(x => x.filter(i => i.id !== id))
       return
     }
-    const client = supabase()
-    if (!client) return
-    await client.from('inventory_items').delete().eq('id', id)
-    setItems(x => x.filter(i => i.id !== id))
+    try {
+      await deleteInventoryItem(id)
+      setItems(current => current.filter(item => item.id !== id))
+      setDatabaseMessage('')
+    } catch {
+      setDatabaseMessage('Produk belum dihapus. Pastikan database Neon tersedia.')
+    }
   }
 
   const productTable = (
@@ -427,9 +410,9 @@ export default function Page() {
                   )}
                 </div>
                 <div className="settings-row">
-                  <div className="settings-icon"><LogOut size={18} /></div>
-<div><b>Bagikan workspace</b><p className="muted">Semua anggota tim dapat melihat dan mengelola data publik.</p></div>
-              <button className="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)}>Salin link</button>
+                  <div className="settings-icon"><Boxes size={18} /></div>
+                  <div><b>Bagikan workspace</b><p className="muted">Semua anggota tim dapat melihat dan mengelola data publik.</p></div>
+                  <button className="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)}>Salin link</button>
                 </div>
               </div>
             </>
@@ -442,7 +425,7 @@ export default function Page() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setShowAdd(false)}><X size={19} /></button>
             <h2>{editingId ? 'Edit produk' : 'Tambah produk'}</h2>
-            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris akun Anda.'}</p>
+            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris bersama.'}</p>
             <form onSubmit={add}>
               <label>Nama produk<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
               <div className="form-grid">
