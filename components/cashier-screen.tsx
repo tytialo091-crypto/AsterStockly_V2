@@ -124,7 +124,7 @@ export function CashierScreen() {
           <div className="cart-heading"><div><h2>Keranjang</h2><p>{cart.reduce((sum, line) => sum + line.quantity, 0)} item dipilih</p></div>{cart.length > 0 && <button className="clear-cart" onClick={() => setCart([])}><Trash2 size={15} /> Bersihkan</button>}</div>
           <div className="cart-lines">
             {cart.length === 0 ? <div className="cart-empty"><ShoppingBag size={22} /><span>Belum ada barang di keranjang.</span></div> : cart.map(line => <div className="cart-line" key={line.product.id}>
-              <div className="cart-line-info"><b>{line.product.name}</b><small>{formatMoney(line.product.price)} / pcs</small><strong>{formatMoney(line.product.price * line.quantity)}</strong></div>
+              <div className="cart-line-info"><b>{line.product.name}</b><small>{formatMoney(line.product.price)} / {line.product.unit}</small><strong>{formatMoney(line.product.price * line.quantity)}</strong></div>
               <div className="quantity-controls"><button aria-label={`Kurangi ${line.product.name}`} onClick={() => updateQuantity(line.product.id, -1)}><Minus size={14} /></button><span>{line.quantity}</span><button aria-label={`Tambah ${line.product.name}`} disabled={line.quantity >= line.product.stock} onClick={() => updateQuantity(line.product.id, 1)}><Plus size={14} /></button><button className="remove-line" aria-label={`Hapus ${line.product.name}`} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}><X size={15} /></button></div>
             </div>)}
           </div>
@@ -145,8 +145,8 @@ export function CashierScreen() {
 
       {receipt && <div className="receipt-backdrop" role="presentation" onClick={() => setReceipt(null)}><section className="receipt-card" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onClick={event => event.stopPropagation()}>
         <button className="receipt-close" aria-label="Tutup struk" onClick={() => setReceipt(null)}><X size={18} /></button>
-        <div className="receipt-success"><span><Check size={18} /></span><b>Pembayaran berhasil</b></div>
-        <div className="receipt-paper"><header><strong>ASTERSTOCKLY</strong><span>STRUK PEMBELIAN</span><small>{new Date(receipt.createdAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</small></header>
+        <div className="receipt-success"><span><Check size={18} /></span><b id="receipt-title">Pembayaran berhasil</b></div>
+        <div className="receipt-paper"><header><strong>ASTERSTOCKLY</strong><span>STRUK PEMBELIAN</span><small>{new Date(receipt.createdAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' })}</small></header>
           <div className="receipt-code"><span>Kode transaksi</span><b>{receipt.code}</b></div>{receipt.customerName && <div className="receipt-code"><span>Pelanggan</span><b>{receipt.customerName}</b></div>}
           <div className="receipt-items">{receipt.lines.map(line => <div key={line.productId}><span>{line.productName}<small>{line.quantity} × {formatMoney(line.unitPrice)}</small></span><b>{formatMoney(line.lineTotal)}</b></div>)}</div>
           <div className="receipt-totals"><div><span>Subtotal</span><b>{formatMoney(receipt.subtotal)}</b></div>{receipt.discountAmount > 0 && <div><span>Diskon</span><b>−{formatMoney(receipt.discountAmount)}</b></div>}{receipt.taxAmount > 0 && <div><span>PPN 11%</span><b>{formatMoney(receipt.taxAmount)}</b></div>}<div className="receipt-total"><span>Total</span><b>{formatMoney(receipt.total)}</b></div><div><span>{receipt.paymentMethod} · Bayar</span><b>{formatMoney(receipt.paid)}</b></div><div><span>Kembalian</span><b>{formatMoney(receipt.changeDue)}</b></div></div>

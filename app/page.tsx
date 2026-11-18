@@ -5,7 +5,7 @@ import { deleteInventoryItem, listInventoryItems, saveInventoryItem } from '@/ap
 import { DashboardMetrics } from '@/components/dashboard-metrics'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, Menu, MessageCircle, PackagePlus,
-  Pencil, Search, Settings, ShieldCheck, ShoppingCart, Trash2, TriangleAlert, UserRound, X,
+  Pencil, Search, Settings, ShieldCheck, ShoppingCart, Trash2, UserRound, X,
 } from 'lucide-react'
 
 type View = 'ringkasan' | 'produk' | 'expiry' | 'notifikasi' | 'pengaturan'
@@ -69,7 +69,7 @@ export default function Page() {
     [items],
   )
   const alerts = [
-    ...low.map(i => ({ id: `low-${i.id}`, text: `${i.name} tinggal ${i.stock} ${i.unit}, di bawah minimum ${i.min_stock}.` })),
+    ...low.map(i => ({ id: `low-${i.id}`, text: `${i.name} tinggal ${i.stock} ${i.unit}, stok 5 atau kurang.` })),
     ...exp.map(i => ({ id: `exp-${i.id}`, text: `${i.name} akan expired pada ${new Date(i.expiry_date as string).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}.` })),
   ]
 

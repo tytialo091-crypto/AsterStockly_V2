@@ -40,6 +40,7 @@ export async function getCashierProducts() {
     category: inventoryItems.category,
     stock: inventoryItems.stock,
     price: inventoryItems.price,
+    unit: inventoryItems.unit,
   }).from(inventoryItems).orderBy(inventoryItems.name)
 }
 
@@ -51,15 +52,19 @@ export async function createPosTransaction(input: {
   paid: number
   paymentMethod: PaymentMethod
 }) {
+  if (!input || typeof input !== 'object') throw new Error('Data transaksi tidak valid.')
   if (!Array.isArray(input.lines) || input.lines.length < 1 || input.lines.length > 100) throw new Error('Keranjang tidak valid.')
   if (!['Tunai', 'QRIS', 'Transfer'].includes(input.paymentMethod)) throw new Error('Metode pembayaran tidak valid.')
+  if (typeof input.includeTax !== 'boolean') throw new Error('Pilihan pajak tidak valid.')
+  if (input.customerName !== undefined && typeof input.customerName !== 'string') throw new Error('Nama pelanggan tidak valid.')
   const discountPercent = Number(input.discountPercent)
   const paid = Number(input.paid)
-  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100 || Math.round(discountPercent * 100) !== discountPercent * 100) throw new Error('Diskon harus di antara 0 sampai 100 persen.')
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100 || Math.abs(Math.round(discountPercent * 100) - discountPercent * 100) > 1e-7) throw new Error('Diskon harus di antara 0 sampai 100 persen.')
   if (!Number.isSafeInteger(paid) || paid < 0) throw new Error('Jumlah bayar tidak valid.')
   const customerName = (input.customerName ?? '').trim().slice(0, 120) || null
   const quantities = new Map<string, number>()
   for (const line of input.lines) {
+    if (!line || typeof line !== 'object') throw new Error('Barang dalam keranjang tidak valid.')
     if (typeof line.productId !== 'string' || !/^[0-9a-f-]{36}$/i.test(line.productId)) throw new Error('Produk dalam keranjang tidak valid.')
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 999) throw new Error('Jumlah barang tidak valid.')
     const quantity = (quantities.get(line.productId) ?? 0) + line.quantity
@@ -75,20 +80,21 @@ export async function createPosTransaction(input: {
       const product = productById.get(productId)
       if (!product || product.stock < quantity) throw new Error(`Stok ${product?.name ?? 'barang'} tidak mencukupi.`)
       const lineTotal = product.price * quantity
-      if (!Number.isSafeInteger(lineTotal)) throw new Error('Nilai transaksi terlalu besar.')
+      if (!Number.isSafeInteger(lineTotal) || lineTotal > 2_000_000_000) throw new Error('Nilai transaksi terlalu besar.')
       return { product, quantity, lineTotal }
     })
     const subtotal = lines.reduce((total, line) => total + line.lineTotal, 0)
-    if (!Number.isSafeInteger(subtotal)) throw new Error('Nilai transaksi terlalu besar.')
+    if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) throw new Error('Nilai transaksi terlalu besar.')
     const discountAmount = Math.round(subtotal * discountPercent / 100)
     const taxable = subtotal - discountAmount
     const taxAmount = input.includeTax ? Math.round(taxable * 0.11) : 0
     const total = taxable + taxAmount
-    if (!Number.isSafeInteger(total) || paid < total) throw new Error('Uang yang dibayarkan belum mencukupi.')
+    if (!Number.isSafeInteger(total) || total > 2_000_000_000) throw new Error('Nilai transaksi terlalu besar.')
+    if (paid < total) throw new Error('Uang yang dibayarkan belum mencukupi.')
 
     for (const line of lines) {
       const [updated] = await tx.update(inventoryItems)
-        .set({ stock: line.product.stock - line.quantity })
+        .set({ stock: sql`${inventoryItems.stock} - ${line.quantity}` })
         .where(and(eq(inventoryItems.id, line.product.id), gte(inventoryItems.stock, line.quantity)))
         .returning({ id: inventoryItems.id })
       if (!updated) throw new Error(`Stok ${line.product.name} berubah. Periksa keranjang lalu coba lagi.`)
