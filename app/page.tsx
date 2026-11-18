@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import useSWR from 'swr'
 import { deleteInventoryItem, listInventoryItems, saveInventoryItem } from '@/app/actions/inventory'
+import { DashboardMetrics } from '@/components/dashboard-metrics'
 import {
   Bell, Boxes, CalendarClock, LayoutGrid, Menu, MessageCircle, PackagePlus,
-  Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
+  Pencil, Search, Settings, ShieldCheck, ShoppingCart, Trash2, TriangleAlert, UserRound, X,
 } from 'lucide-react'
 
 type View = 'ringkasan' | 'produk' | 'expiry' | 'notifikasi' | 'pengaturan'
@@ -14,23 +16,23 @@ type Item = {
   sku: string
   category: string
   stock: number
+  price: number
   min_stock: number
   unit: string
   expiry_date: string | null
   location: string
 }
 
-const demo: Item[] = [
-  { id: '1', name: 'Kopi Arabika Gayo', sku: 'KPG-001', category: 'Bahan baku', stock: 24, min_stock: 10, unit: 'kg', expiry_date: '2026-09-12', location: 'Gudang utama' },
-  { id: '2', name: 'Susu UHT Full Cream', sku: 'SUS-014', category: 'Bahan baku', stock: 6, min_stock: 12, unit: 'liter', expiry_date: '2026-08-29', location: 'Chiller' },
-  { id: '3', name: 'Gula Aren Cair', sku: 'GAR-008', category: 'Bahan baku', stock: 18, min_stock: 8, unit: 'botol', expiry_date: '2026-10-05', location: 'Gudang utama' },
-]
-
 const EXPIRY_WINDOW_MS = 14 * 86400000
 
 export default function Page() {
-  const [items, setItems] = useState<Item[]>([])
-  const [isDemo, setIsDemo] = useState(false)
+  const { data: inventoryRows, error: inventoryError, mutate: refreshInventory } = useSWR('inventory-items', listInventoryItems, { refreshInterval: 3000, revalidateOnFocus: true })
+  const items = useMemo(() => (inventoryRows ?? []).map(row => ({
+    ...row,
+    min_stock: row.minStock,
+    expiry_date: row.expiryDate,
+    created_at: row.createdAt.toISOString(),
+  })) as Item[], [inventoryRows])
   const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -40,27 +42,12 @@ export default function Page() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default')
   const [form, setForm] = useState({
-    name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama',
+    name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama',
   })
 
   useEffect(() => {
     if (typeof Notification === 'undefined') setNotifPermission('unsupported')
     else setNotifPermission(Notification.permission)
-
-    listInventoryItems().then(rows => {
-      setItems(rows.map(row => ({
-        ...row,
-        min_stock: row.minStock,
-        expiry_date: row.expiryDate,
-        created_at: row.createdAt.toISOString(),
-      })) as Item[])
-      setIsDemo(false)
-      setDatabaseMessage('')
-    }).catch(() => {
-      setDatabaseMessage('Neon belum dapat dijangkau. Data demo ditampilkan sementara.')
-      setItems(demo)
-      setIsDemo(true)
-    })
   }, [])
 
   const [category, setCategory] = useState('Semua kategori')
@@ -72,7 +59,8 @@ export default function Page() {
       .filter(i => category === 'Semua kategori' || i.category === category),
     [items, query, category],
   )
-  const low = items.filter(i => i.stock <= i.min_stock)
+  const low = items.filter(i => i.stock <= 5)
+  const visibleDatabaseMessage = databaseMessage || (inventoryError ? 'Neon belum dapat dijangkau. Produk tidak ditampilkan sampai database tersedia.' : '')
   const exp = items.filter(i => i.expiry_date && new Date(i.expiry_date).getTime() - Date.now() < EXPIRY_WINDOW_MS)
   const expSorted = useMemo(
     () => [...items]
@@ -117,13 +105,13 @@ export default function Page() {
 
   function openCreate() {
     setEditingId(null)
-    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    setForm({ name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
     setShowAdd(true)
   }
 
   function openEdit(item: Item) {
     setEditingId(item.id)
-    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
+    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, price: item.price, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
     setShowAdd(true)
   }
 
@@ -132,31 +120,26 @@ export default function Page() {
     const name = form.name.trim()
     const sku = form.sku.trim()
     const stock = Number(form.stock)
+    const price = Number(form.price)
     const minStock = Number(form.min_stock)
-    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
-    const payload = { ...form, name, sku, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
+    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isSafeInteger(price) || price < 0 || !Number.isInteger(minStock) || minStock < 0) return
+    const payload = { ...form, name, sku, stock, price, min_stock: minStock, expiry_date: form.expiry_date || null }
     try {
-      const saved = await saveInventoryItem(payload, editingId ?? undefined)
-      const item = saved as Item
-      setItems(current => editingId ? current.map(existing => existing.id === editingId ? item : existing) : [item, ...current])
-      setIsDemo(false)
+      await saveInventoryItem(payload, editingId ?? undefined)
+      await refreshInventory()
       setDatabaseMessage('')
       setShowAdd(false)
       setEditingId(null)
-      setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+      setForm({ name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
     } catch {
       setDatabaseMessage('Produk belum tersimpan. Pastikan Neon terhubung dan SKU belum digunakan.')
     }
   }
 
   async function remove(id: string) {
-    if (isDemo) {
-      setItems(x => x.filter(i => i.id !== id))
-      return
-    }
     try {
       await deleteInventoryItem(id)
-      setItems(current => current.filter(item => item.id !== id))
+      await refreshInventory()
       setDatabaseMessage('')
     } catch {
       setDatabaseMessage('Produk belum dihapus. Pastikan database Neon tersedia.')
@@ -167,21 +150,22 @@ export default function Page() {
     <div className="table-wrap">
       <table>
         <thead>
-          <tr><th>Produk</th><th>Kategori</th><th>Stok</th><th>Expiry</th><th>Lokasi</th><th></th></tr>
+          <tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Expiry</th><th>Lokasi</th><th></th></tr>
         </thead>
         <tbody>
           {filtered.map(i => (
             <tr key={i.id}>
               <td><b>{i.name}</b><small>{i.sku}</small></td>
               <td>{i.category}</td>
-              <td><span className={i.stock <= i.min_stock ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
+              <td>{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(i.price)}</td>
+              <td><span className={i.stock <= 5 ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
               <td>{i.expiry_date ? new Date(i.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
               <td>{i.location}</td>
               <td className="row-actions"><button className="delete" onClick={() => openEdit(i)} aria-label={`Edit ${i.name}`}><Pencil size={16} /></button><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
             </tr>
           ))}
           {filtered.length === 0 && (
-            <tr><td colSpan={6} className="empty-row muted">Tidak ada produk yang cocok.</td></tr>
+            <tr><td colSpan={7} className="empty-row muted">Tidak ada produk yang cocok.</td></tr>
           )}
         </tbody>
       </table>
@@ -200,6 +184,7 @@ export default function Page() {
         <nav>
           <a className={view === 'ringkasan' ? 'nav-active' : ''} onClick={() => goTo('ringkasan')}><LayoutGrid size={18} /> Ringkasan</a>
           <a className={view === 'produk' ? 'nav-active' : ''} onClick={() => goTo('produk')}><PackagePlus size={18} /> Produk</a>
+          <a href="/kasir"><ShoppingCart size={18} /> Kasir</a>
           <a className={view === 'expiry' ? 'nav-active' : ''} onClick={() => goTo('expiry')}><CalendarClock size={18} /> Expiry & batch</a>
           <a className={view === 'notifikasi' ? 'nav-active' : ''} onClick={() => goTo('notifikasi')}>
             <MessageCircle size={18} /> Notifikasi
@@ -250,29 +235,12 @@ export default function Page() {
         </header>
 
         <div className="content">
-          {isDemo && (
-            <p className="muted demo-note">
-          Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
-          </p>
-          )}
-          {databaseMessage && <p className="muted demo-note" role="status">{databaseMessage}</p>}
+          {visibleDatabaseMessage && <p className="muted demo-note" role="status">{visibleDatabaseMessage}</p>}
 
           {view === 'ringkasan' && (
             <>
-              <div className="stats">
-                <div className="stat-card">
-                  <div className="stat-icon"><Boxes size={18} /></div>
-                  <span>Total produk</span><strong>{items.length}</strong><small>Item terdaftar</small>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon warning"><TriangleAlert size={18} /></div>
-                  <span>Stok menipis</span><strong className="orange">{low.length}</strong><small>Perlu restock</small>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon danger"><CalendarClock size={18} /></div>
-                  <span>Expiry mendekat</span><strong className="red">{exp.length}</strong><small>Dalam 14 hari</small>
-                </div>
-              </div>
+              <DashboardMetrics />
+              <div className="expiry-summary"><CalendarClock size={16} /><span>{exp.length} produk mendekati tanggal kedaluwarsa</span></div>
 
               <div className="section-head">
                 <div>
@@ -430,6 +398,8 @@ export default function Page() {
               <label>Nama produk<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
               <div className="form-grid">
                 <label>SKU<input required value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} /></label>
+                <label>Kategori<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option>Makanan</option><option>Minuman</option><option>Snack</option><option>Lainnya</option></select></label>
+                <label>Harga (Rp)<input required type="number" min="0" step="1" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} /></label>
                 <label>Satuan<input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} /></label>
                 <label>Stok<input type="number" min="0" value={form.stock} onChange={e => setForm({ ...form, stock: Number(e.target.value) })} /></label>
                 <label>Min. stok<input type="number" min="0" value={form.min_stock} onChange={e => setForm({ ...form, min_stock: Number(e.target.value) })} /></label>
