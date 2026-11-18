@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
+import useSWR from 'swr'
+import { deleteInventoryItem, listInventoryItems, saveInventoryItem } from '@/app/actions/inventory'
+import { DashboardMetrics } from '@/components/dashboard-metrics'
 import {
-  Bell, Boxes, CalendarClock, LayoutGrid, LogOut, Menu, MessageCircle, PackagePlus,
-  Pencil, Search, Settings, ShieldCheck, Trash2, TriangleAlert, UserRound, X,
+  Bell, Boxes, CalendarClock, LayoutGrid, Menu, MessageCircle, PackagePlus,
+  Pencil, Search, Settings, ShieldCheck, ShoppingCart, Trash2, UserRound, X,
 } from 'lucide-react'
 
 type View = 'ringkasan' | 'produk' | 'expiry' | 'notifikasi' | 'pengaturan'
@@ -14,25 +16,23 @@ type Item = {
   sku: string
   category: string
   stock: number
+  price: number
   min_stock: number
   unit: string
   expiry_date: string | null
   location: string
 }
 
-const demo: Item[] = [
-  { id: '1', name: 'Kopi Arabika Gayo', sku: 'KPG-001', category: 'Bahan baku', stock: 24, min_stock: 10, unit: 'kg', expiry_date: '2026-09-12', location: 'Gudang utama' },
-  { id: '2', name: 'Susu UHT Full Cream', sku: 'SUS-014', category: 'Bahan baku', stock: 6, min_stock: 12, unit: 'liter', expiry_date: '2026-08-29', location: 'Chiller' },
-  { id: '3', name: 'Gula Aren Cair', sku: 'GAR-008', category: 'Bahan baku', stock: 18, min_stock: 8, unit: 'botol', expiry_date: '2026-10-05', location: 'Gudang utama' },
-]
-
 const EXPIRY_WINDOW_MS = 14 * 86400000
 
 export default function Page() {
-  const [user, setUser] = useState<any>(null)
-  const [items, setItems] = useState<Item[]>([])
-  const [isDemo, setIsDemo] = useState(false)
-  const [authLoading, setAuthLoading] = useState(true)
+  const { data: inventoryRows, error: inventoryError, mutate: refreshInventory } = useSWR('inventory-items', listInventoryItems, { refreshInterval: 3000, revalidateOnFocus: true })
+  const items = useMemo(() => (inventoryRows ?? []).map(row => ({
+    ...row,
+    min_stock: row.minStock,
+    expiry_date: row.expiryDate,
+    created_at: row.createdAt.toISOString(),
+  })) as Item[], [inventoryRows])
   const [databaseMessage, setDatabaseMessage] = useState('')
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -42,56 +42,12 @@ export default function Page() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default')
   const [form, setForm] = useState({
-    name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama',
+    name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama',
   })
-
-  const supabase = () => createClient()
 
   useEffect(() => {
     if (typeof Notification === 'undefined') setNotifPermission('unsupported')
     else setNotifPermission(Notification.permission)
-
-    if (!isSupabaseConfigured()) {
-      setAuthLoading(false)
-      setItems(demo)
-      setIsDemo(true)
-      return
-    }
-
-    const client = supabase()
-    if (!client) {
-      setAuthLoading(false)
-      setItems(demo)
-      setIsDemo(true)
-      return
-    }
-    client.auth.getUser().then(({ data, error: authError }) => {
-      if (authError || !data.user) {
-        window.location.assign('/auth')
-        return
-      }
-      setUser(data.user)
-      setAuthLoading(false)
-      client.from('inventory_items').select('*').order('created_at', { ascending: false }).then(({ data: rows, error }) => {
-        if (error) {
-          setDatabaseMessage('Data inventaris belum dapat dimuat. Pastikan tabel inventory_items dan policy RLS sudah tersedia.')
-          setItems(demo)
-          setIsDemo(true)
-          return
-        }
-        if (rows?.length) {
-          setItems(rows as Item[])
-          setIsDemo(false)
-        } else {
-          setItems(demo)
-          setIsDemo(true)
-        }
-      })
-    }).catch(() => {
-      setAuthLoading(false)
-      setDatabaseMessage('Sesi tidak dapat diverifikasi. Silakan masuk kembali.')
-      window.location.assign('/auth')
-    })
   }, [])
 
   const [category, setCategory] = useState('Semua kategori')
@@ -103,7 +59,8 @@ export default function Page() {
       .filter(i => category === 'Semua kategori' || i.category === category),
     [items, query, category],
   )
-  const low = items.filter(i => i.stock <= i.min_stock)
+  const low = items.filter(i => i.stock <= 5)
+  const visibleDatabaseMessage = databaseMessage || (inventoryError ? 'Neon belum dapat dijangkau. Produk tidak ditampilkan sampai database tersedia.' : '')
   const exp = items.filter(i => i.expiry_date && new Date(i.expiry_date).getTime() - Date.now() < EXPIRY_WINDOW_MS)
   const expSorted = useMemo(
     () => [...items]
@@ -112,7 +69,7 @@ export default function Page() {
     [items],
   )
   const alerts = [
-    ...low.map(i => ({ id: `low-${i.id}`, text: `${i.name} tinggal ${i.stock} ${i.unit}, di bawah minimum ${i.min_stock}.` })),
+    ...low.map(i => ({ id: `low-${i.id}`, text: `${i.name} tinggal ${i.stock} ${i.unit}, stok 5 atau kurang.` })),
     ...exp.map(i => ({ id: `exp-${i.id}`, text: `${i.name} akan expired pada ${new Date(i.expiry_date as string).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}.` })),
   ]
 
@@ -148,84 +105,67 @@ export default function Page() {
 
   function openCreate() {
     setEditingId(null)
-    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    setForm({ name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
     setShowAdd(true)
   }
 
   function openEdit(item: Item) {
     setEditingId(item.id)
-    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
+    setForm({ name: item.name, sku: item.sku, category: item.category, stock: item.stock, price: item.price, min_stock: item.min_stock, unit: item.unit, expiry_date: item.expiry_date ?? '', location: item.location })
     setShowAdd(true)
   }
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
-    if (!user) return
-    const client = supabase()
-    if (!client) return
     const name = form.name.trim()
     const sku = form.sku.trim()
     const stock = Number(form.stock)
+    const price = Number(form.price)
     const minStock = Number(form.min_stock)
-    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isInteger(minStock) || minStock < 0) return
-    const payload = { ...form, name, sku, user_id: user.id, stock, min_stock: minStock, expiry_date: form.expiry_date || null }
-    const result = editingId
-      ? await client.from('inventory_items').update(payload).eq('id', editingId).eq('user_id', user.id).select().single()
-      : await client.from('inventory_items').insert(payload).select().single()
-    if (result.error) {
-      setDatabaseMessage('Produk belum tersimpan. Periksa struktur tabel dan policy RLS Supabase.')
-      return
+    if (!name || !sku || !Number.isInteger(stock) || stock < 0 || !Number.isSafeInteger(price) || price < 0 || !Number.isInteger(minStock) || minStock < 0) return
+    const payload = { ...form, name, sku, stock, price, min_stock: minStock, expiry_date: form.expiry_date || null }
+    try {
+      await saveInventoryItem(payload, editingId ?? undefined)
+      await refreshInventory()
+      setDatabaseMessage('')
+      setShowAdd(false)
+      setEditingId(null)
+      setForm({ name: '', sku: '', category: 'Lainnya', stock: 0, price: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
+    } catch {
+      setDatabaseMessage('Produk belum tersimpan. Pastikan Neon terhubung dan SKU belum digunakan.')
     }
-    const { data } = result
-    if (data) {
-      setItems(x => editingId ? x.map(item => item.id === editingId ? data as Item : item) : [data as Item, ...(isDemo ? [] : x)])
-      setIsDemo(false)
-    }
-    setShowAdd(false)
-    setEditingId(null)
-    setForm({ name: '', sku: '', category: 'Bahan baku', stock: 0, min_stock: 5, unit: 'pcs', expiry_date: '', location: 'Gudang utama' })
   }
 
   async function remove(id: string) {
-    if (isDemo) {
-      setItems(x => x.filter(i => i.id !== id))
-      return
+    try {
+      await deleteInventoryItem(id)
+      await refreshInventory()
+      setDatabaseMessage('')
+    } catch {
+      setDatabaseMessage('Produk belum dihapus. Pastikan database Neon tersedia.')
     }
-    const client = supabase()
-    if (!client) return
-    await client.from('inventory_items').delete().eq('id', id).eq('user_id', user?.id)
-    setItems(x => x.filter(i => i.id !== id))
-  }
-
-  async function logout() {
-    const client = supabase()
-    if (client) await client.auth.signOut()
-    window.location.assign('/auth')
-  }
-
-  if (authLoading) {
-    return <main className="loading-screen" aria-live="polite"><div className="loading-orbit" /><p>Menyiapkan workspace Anda...</p></main>
   }
 
   const productTable = (
     <div className="table-wrap">
       <table>
         <thead>
-          <tr><th>Produk</th><th>Kategori</th><th>Stok</th><th>Expiry</th><th>Lokasi</th><th></th></tr>
+          <tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Expiry</th><th>Lokasi</th><th></th></tr>
         </thead>
         <tbody>
           {filtered.map(i => (
             <tr key={i.id}>
               <td><b>{i.name}</b><small>{i.sku}</small></td>
               <td>{i.category}</td>
-              <td><span className={i.stock <= i.min_stock ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
+              <td>{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(i.price)}</td>
+              <td><span className={i.stock <= 5 ? 'status low' : 'status'}>{i.stock} {i.unit}</span></td>
               <td>{i.expiry_date ? new Date(i.expiry_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
               <td>{i.location}</td>
               <td className="row-actions"><button className="delete" onClick={() => openEdit(i)} aria-label={`Edit ${i.name}`}><Pencil size={16} /></button><button className="delete" onClick={() => remove(i.id)} aria-label={`Hapus ${i.name}`}><Trash2 size={16} /></button></td>
             </tr>
           ))}
           {filtered.length === 0 && (
-            <tr><td colSpan={6} className="empty-row muted">Tidak ada produk yang cocok.</td></tr>
+            <tr><td colSpan={7} className="empty-row muted">Tidak ada produk yang cocok.</td></tr>
           )}
         </tbody>
       </table>
@@ -244,6 +184,7 @@ export default function Page() {
         <nav>
           <a className={view === 'ringkasan' ? 'nav-active' : ''} onClick={() => goTo('ringkasan')}><LayoutGrid size={18} /> Ringkasan</a>
           <a className={view === 'produk' ? 'nav-active' : ''} onClick={() => goTo('produk')}><PackagePlus size={18} /> Produk</a>
+          <a href="/kasir"><ShoppingCart size={18} /> Kasir</a>
           <a className={view === 'expiry' ? 'nav-active' : ''} onClick={() => goTo('expiry')}><CalendarClock size={18} /> Expiry & batch</a>
           <a className={view === 'notifikasi' ? 'nav-active' : ''} onClick={() => goTo('notifikasi')}>
             <MessageCircle size={18} /> Notifikasi
@@ -252,7 +193,7 @@ export default function Page() {
         </nav>
         <div className="sidebar-bottom">
           <a className={view === 'pengaturan' ? 'nav-active' : ''} onClick={() => goTo('pengaturan')}><Settings size={18} /> Pengaturan</a>
-          <button onClick={logout}><LogOut size={18} /> Keluar</button>
+          <button onClick={openCreate}><PackagePlus size={18} /> Tambah data</button>
         </div>
       </aside>
 
@@ -262,7 +203,7 @@ export default function Page() {
             <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Buka menu"><Menu size={20} /></button>
             <div>
               <p className="eyebrow">{pageMeta[view].eyebrow}</p>
-              <h1>{pageMeta[view].title}{view === 'ringkasan' && user?.user_metadata?.name ? `, ${user.user_metadata.name.split(' ')[0]}` : ''}{view === 'ringkasan' ? '.' : ''}</h1>
+              <h1>{pageMeta[view].title}{view === 'ringkasan' ? ', tim AsterStockly' : ''}{view === 'ringkasan' ? '.' : ''}</h1>
             </div>
           </div>
           <div className="top-actions">
@@ -294,29 +235,12 @@ export default function Page() {
         </header>
 
         <div className="content">
-          {isDemo && (
-            <p className="muted demo-note">
-          Menampilkan data contoh — belum ada produk tersimpan di akun Anda.
-          </p>
-          )}
-          {databaseMessage && <p className="muted demo-note" role="status">{databaseMessage}</p>}
+          {visibleDatabaseMessage && <p className="muted demo-note" role="status">{visibleDatabaseMessage}</p>}
 
           {view === 'ringkasan' && (
             <>
-              <div className="stats">
-                <div className="stat-card">
-                  <div className="stat-icon"><Boxes size={18} /></div>
-                  <span>Total produk</span><strong>{items.length}</strong><small>Item terdaftar</small>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon warning"><TriangleAlert size={18} /></div>
-                  <span>Stok menipis</span><strong className="orange">{low.length}</strong><small>Perlu restock</small>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon danger"><CalendarClock size={18} /></div>
-                  <span>Expiry mendekat</span><strong className="red">{exp.length}</strong><small>Dalam 14 hari</small>
-                </div>
-              </div>
+              <DashboardMetrics />
+              <div className="expiry-summary"><CalendarClock size={16} /><span>{exp.length} produk mendekati tanggal kedaluwarsa</span></div>
 
               <div className="section-head">
                 <div>
@@ -444,7 +368,7 @@ export default function Page() {
               <div className="panel settings-panel">
                 <div className="settings-row">
                   <div className="settings-icon"><UserRound size={18} /></div>
-                  <div><b>Email</b><p className="muted">{user?.email ?? '—'}</p></div>
+                  <div><b>Mode akses</b><p className="muted">Data publik untuk seluruh tim</p></div>
                 </div>
                 <div className="settings-row">
                   <div className="settings-icon"><ShieldCheck size={18} /></div>
@@ -454,9 +378,9 @@ export default function Page() {
                   )}
                 </div>
                 <div className="settings-row">
-                  <div className="settings-icon"><LogOut size={18} /></div>
-                  <div><b>Keluar dari akun</b><p className="muted">Akhiri sesi Anda di perangkat ini.</p></div>
-                  <button className="ghost" onClick={logout}>Keluar</button>
+                  <div className="settings-icon"><Boxes size={18} /></div>
+                  <div><b>Bagikan workspace</b><p className="muted">Semua anggota tim dapat melihat dan mengelola data publik.</p></div>
+                  <button className="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)}>Salin link</button>
                 </div>
               </div>
             </>
@@ -469,11 +393,13 @@ export default function Page() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setShowAdd(false)}><X size={19} /></button>
             <h2>{editingId ? 'Edit produk' : 'Tambah produk'}</h2>
-            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris akun Anda.'}</p>
+            <p className="muted">{editingId ? 'Perbarui detail item inventaris Anda.' : 'Simpan item baru ke inventaris bersama.'}</p>
             <form onSubmit={add}>
               <label>Nama produk<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
               <div className="form-grid">
                 <label>SKU<input required value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} /></label>
+                <label>Kategori<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}><option>Makanan</option><option>Minuman</option><option>Snack</option><option>Lainnya</option></select></label>
+                <label>Harga (Rp)<input required type="number" min="0" step="1" value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} /></label>
                 <label>Satuan<input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} /></label>
                 <label>Stok<input type="number" min="0" value={form.stock} onChange={e => setForm({ ...form, stock: Number(e.target.value) })} /></label>
                 <label>Min. stok<input type="number" min="0" value={form.min_stock} onChange={e => setForm({ ...form, min_stock: Number(e.target.value) })} /></label>
